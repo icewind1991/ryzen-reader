@@ -11,3 +11,4 @@ readme = "README.md"
 
 [dependencies]
 thiserror = "1.0"
+arrayvec = "0.5"

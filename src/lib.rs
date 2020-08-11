@@ -4,6 +4,7 @@ const AMD_POWER_UNIT_MASK: u64 = 0xF;
 
 const MAX_CPUS: u32 = 1024;
 
+use arrayvec::ArrayVec;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
 use std::mem::size_of;
@@ -95,7 +96,7 @@ struct CorePower {
 
 #[derive(Debug, Clone)]
 pub struct CpuPower {
-    cores: Vec<CorePower>,
+    cores: ArrayVec<[CorePower; 64]>,
 }
 
 impl CpuPower {
@@ -130,7 +131,7 @@ struct PowerUnits {
 }
 
 pub struct CpuInfo {
-    cores: Vec<Core>,
+    cores: ArrayVec<[Core; 64]>,
     units: PowerUnits,
 }
 
@@ -158,7 +159,7 @@ pub struct CpuInfo {
 ///```
 impl CpuInfo {
     pub fn new() -> Result<Self, Error> {
-        let mut cores = Vec::with_capacity(8);
+        let mut cores = ArrayVec::<[Core; 64]>::new();
 
         for i in 0..MAX_CPUS {
             match Core::open(i) {
@@ -194,36 +195,37 @@ impl CpuInfo {
     ///
     /// Note that this method will block for ~10ms
     pub fn read(&self) -> Result<CpuPower, Error> {
-        let start = self.read_raw()?;
+        let start = self
+            .read_raw()
+            .collect::<Result<ArrayVec<[CorePower; 64]>, Error>>()?;
         sleep(Duration::from_millis(10));
-        let end = self.read_raw()?;
 
         let cores = start
             .into_iter()
-            .zip(end.into_iter())
-            .map(|(start, end)| CorePower {
-                core_power: (end.core_power - start.core_power) * 100.0,
-                package_power: (end.package_power - start.package_power) * 100.0,
-                package: start.package,
+            .zip(self.read_raw())
+            .map(|(start, end)| {
+                let end = end?;
+                Ok(CorePower {
+                    core_power: (end.core_power - start.core_power) * 100.0,
+                    package_power: (end.package_power - start.package_power) * 100.0,
+                    package: start.package,
+                })
             })
-            .collect();
+            .collect::<Result<ArrayVec<[CorePower; 64]>, Error>>()?;
 
         Ok(CpuPower { cores })
     }
 
-    fn read_raw(&self) -> Result<Vec<CorePower>, Error> {
-        self.cores
-            .iter()
-            .map(|core| {
-                let core_power = core.read(MsrValue::CoreEnergy)? as f64 * self.units.energy_unit;
-                let package_power =
-                    core.read(MsrValue::PackageEnergy)? as f64 * self.units.energy_unit;
-                Ok(CorePower {
-                    core_power,
-                    package_power,
-                    package: core.package,
-                })
+    fn read_raw<'a>(&'a self) -> impl Iterator<Item = Result<CorePower, Error>> + 'a {
+        let energy_unit = self.units.energy_unit;
+        self.cores.iter().map(move |core: &'a Core| {
+            let core_power = core.read(MsrValue::CoreEnergy)? as f64 * energy_unit;
+            let package_power = core.read(MsrValue::PackageEnergy)? as f64 * energy_unit;
+            Ok(CorePower {
+                core_power,
+                package_power,
+                package: core.package,
             })
-            .collect()
+        })
     }
 }
