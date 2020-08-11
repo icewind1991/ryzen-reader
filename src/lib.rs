@@ -4,11 +4,11 @@ const AMD_POWER_UNIT_MASK: u64 = 0xF;
 
 const MAX_CPUS: u32 = 1024;
 
-use std::cell::RefCell;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
 use std::mem::size_of;
 use std::str;
+use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::Duration;
 use thiserror::Error;
@@ -46,7 +46,7 @@ impl From<std::io::Error> for Error {
 }
 
 struct Core {
-    handle: RefCell<File>,
+    handle: Mutex<File>,
     package: u32,
 }
 
@@ -71,13 +71,13 @@ impl Core {
             .open(&format!("/dev/cpu/{}/msr", cpu_id))?;
 
         Ok(Core {
-            handle: RefCell::new(handle),
+            handle: Mutex::new(handle),
             package,
         })
     }
 
     pub fn read(&self, value: MsrValue) -> Result<u64, Error> {
-        let mut handle = self.handle.borrow_mut();
+        let mut handle = self.handle.lock().unwrap();
         handle.seek(SeekFrom::Start(value as u64))?;
 
         let mut data = [0; size_of::<u64>()];
