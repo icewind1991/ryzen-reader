@@ -108,16 +108,17 @@ impl CpuPower {
     pub fn packages<'a>(&'a self) -> impl Iterator<Item = f64> + 'a {
         let mut last_package = u32::max_value();
 
-        let mut packages = Vec::new();
-
-        for core in self.cores.iter() {
-            if core.package != last_package {
-                last_package = core.package;
-                packages.push(core.package_power)
-            }
-        }
-
-        packages.into_iter()
+        self.cores
+            .iter()
+            .filter(move |core| {
+                if core.package != last_package {
+                    last_package = core.package;
+                    true
+                } else {
+                    false
+                }
+            })
+            .map(|core| core.package_power)
     }
 }
 
